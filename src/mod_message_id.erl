@@ -25,39 +25,38 @@
 -include("logger.hrl").
 
 %% gen_mod API callbacks
--export([start/2, stop/1, message_id/2]).
+-export([start/2, stop/1, message_id_hook/1]).
 
 -ifndef(LAGER).
 -define(LAGER, 1).
 -endif.
 
 start(_Host, _Opt) -> 
-    ejabberd_hooks:add(filter_packet_hook, _Host, ?MODULE, message_id, 10),
+    ejabberd_hooks:add(filter_packet, global, ?MODULE, message_id_hook, 1),
     %%ejabberd_hooks:add(register_user, <<"xmpp.sprue.intamac.com">>, ?MODULE, register_announce_hook, 10),
     ?INFO_MSG("Registering message_id...", []),
     ok.
 
 stop(_Host) -> 
-    ejabberd_hooks:delete(filter_packet_hook, _Host, ?MODULE, message_id, 10),
+    ejabberd_hooks:delete(filter_packet, global, ?MODULE, message_id_hook, 1),
     ?INFO_MSG("Deregistering message_id_hook...", []),
     ok.
 
 %% Creates a presence stanza with custom attribute msg="account-created"
 %% when a user craetes an account with the server.
-announce_registration(User, Server) ->
-    Packet = {xmlel,
-                 <<"presence">>,
-                 [{<<"type">>,<<"account-created">>}],
-                 []
-                 },
-    To = jid:make(<<>>, <<"component.sprue">>, <<>>),
-    From = jid:make(User, Server, <<"">>),
-    ejabberd_router:route(From, To, Packet).
+create_new_packet({From, To, XML} = Packet) ->
+    %% The below works:
+    %%Sequence = [{xmlcdata, <<"HAAAAAAAAAAAAAAAAAAAAAAAAAA">>}],
+    %%NewPacket = {From, To, fxml:append_subtags(XML, Sequence)},
+    %%NewPacket.
+    Sequence = #xmlel{ name = <<"ejab_seq">>, children = [{xmlcdata, <<"HAAAAAAAAAAAAAAAAAAAAAAAAAA">>}]},
+    NewPacket = Packet#xmlel{ children = Sequence },
+    NewPacket.
 
-message_id_hook(Packet) ->
-    ?INFO_MSG("mod_register_announce:register_announce_hook: 
-    	An account has been created for the following user: ~p~n", 
-        Packet),
-    Packet.
+message_id_hook({From, To, XML} = Packet) ->
+    ?INFO_MSG("Packet filtered: ~p~n", 
+        [XML]),
+    NewPacket = create_new_packet(Packet),
+    NewPacket.
 
 
