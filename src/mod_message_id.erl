@@ -58,6 +58,16 @@ update_user_message_id(Username) ->
             {ok, <<"OK">>} = eredis:q(C, ["SET", Username, NewValue]),
             NewValue
     end.
+
+
+can_modify({From, To, XML} = Packet) ->
+    Pos = string:rstr(erlang:binary_to_list(To), "component"),
+    if
+        Pos  > 1 ->
+            true;
+    else -> false
+    end.
+
     
 %% Creates a presence stanza with custom attribute msg="account-created"
 %% when a user craetes an account with the server.
@@ -65,11 +75,9 @@ create_new_packet({From, To, XML} = Packet) ->
     Username = erlang:binary_to_list(From#jid.user),
     NewValue = update_user_message_id(Username),
     ?INFO_MSG("New message id for this user: ~p~n", [NewValue]),
-    %% The below works:
-    Something = lists:merge(XML#xmlel.attrs, [{<<"ejab_seq">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))}]),
-    ?INFO_MSG("###################################### Attrs modified: ~p~n", [Something]),
-    Sequence = [{xmlcdata, <<"HAAAAAAAAAAAAAAAAAAAAAAAAAA">>}],
-    NewXML = #xmlel{ name = XML#xmlel.name, attrs = Something, children = XML#xmlel.children },
+    SequenceAttr = lists:merge(XML#xmlel.attrs, [{<<"ejab_seq">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))}]),
+    ?INFO_MSG("###################################### Attrs modified: ~p~n", [SequenceAttr]),
+    NewXML = #xmlel{ name = XML#xmlel.name, attrs = SequenceAttr, children = XML#xmlel.children },
     NewPacket = {From, To, NewXML},
     NewPacket.
     %%Sequence = #xmlel{ name = <<"ejab_seq">>, children = [{xmlcdata, <<"HAAAAAAAAAAAAAAAAAAAAAAAAAA">>}]},
@@ -79,7 +87,11 @@ create_new_packet({From, To, XML} = Packet) ->
 message_id_hook({From, To, XML} = Packet) ->
     ?INFO_MSG("Packet filtered: ~p~n", 
         [From#jid.user]),
-    NewPacket = create_new_packet(Packet),
-    NewPacket.
+    case can_modify(Packet) of
+        true ->
+            NewPacket = create_new_packet(Packet),
+            NewPacket;
+        false -> Packet
+    end.
 
 
