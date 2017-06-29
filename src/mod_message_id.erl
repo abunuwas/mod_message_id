@@ -23,6 +23,8 @@
 
 %% Required by ?INFO_MSG macros
 -include("logger.hrl").
+%%-include("fxml.hrl").
+-include("jlib.hrl").
 
 %% gen_mod API callbacks
 -export([start/2, stop/1, message_id_hook/1]).
@@ -42,20 +44,33 @@ stop(_Host) ->
     ?INFO_MSG("Deregistering message_id_hook...", []),
     ok.
 
+update_user_message_id(Username) ->
+    {ok, C} = eredis:start_link(),
+    {ok, Last} = eredis:q(C, ["GET", Username]),
+    NewValue = erlang:list_to_integter(erlang:binary_to_list(Last)),
+    {ok, <<"OK">>} = eredis:q(C, ["SET", username, NewValue]),
+    NewValue. 
+
 %% Creates a presence stanza with custom attribute msg="account-created"
 %% when a user craetes an account with the server.
 create_new_packet({From, To, XML} = Packet) ->
+    Username = erlang:binary_to_list(From#jid.user),
+    NewValue = update_user_message_id(Username),
+    ?INFO_MSG("New message id for this user: ~p~n", [NewValue]),
     %% The below works:
-    %%Sequence = [{xmlcdata, <<"HAAAAAAAAAAAAAAAAAAAAAAAAAA">>}],
-    %%NewPacket = {From, To, fxml:append_subtags(XML, Sequence)},
-    %%NewPacket.
-    Sequence = #xmlel{ name = <<"ejab_seq">>, children = [{xmlcdata, <<"HAAAAAAAAAAAAAAAAAAAAAAAAAA">>}]},
-    NewPacket = Packet#xmlel{ children = Sequence },
+    Something = lists:merge(XML#xmlel.attrs, [{<<"ejab_seq">>, <<"1">>}]),
+    ?INFO_MSG("###################################### Atts modified: ~p~n", [Something]),
+    Sequence = [{xmlcdata, <<"HAAAAAAAAAAAAAAAAAAAAAAAAAA">>}],
+    NewXML = #xmlel{ name = XML#xmlel.name, attrs = Something, children = XML#xmlel.children },
+    NewPacket = {From, To, NewXML},
     NewPacket.
+    %%Sequence = #xmlel{ name = <<"ejab_seq">>, children = [{xmlcdata, <<"HAAAAAAAAAAAAAAAAAAAAAAAAAA">>}]},
+    %%NewPacket = Packet#xmlel{ children = Sequence },
+    %%NewPacket.
 
 message_id_hook({From, To, XML} = Packet) ->
     ?INFO_MSG("Packet filtered: ~p~n", 
-        [XML]),
+        [From#jid.user]),
     NewPacket = create_new_packet(Packet),
     NewPacket.
 
