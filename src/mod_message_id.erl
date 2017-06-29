@@ -46,11 +46,19 @@ stop(_Host) ->
 
 update_user_message_id(Username) ->
     {ok, C} = eredis:start_link(),
+    ?INFO_MSG("Connection to Redis: ~p~n", [C]),
     {ok, Last} = eredis:q(C, ["GET", Username]),
-    NewValue = erlang:list_to_integter(erlang:binary_to_list(Last)),
-    {ok, <<"OK">>} = eredis:q(C, ["SET", username, NewValue]),
-    NewValue. 
-
+    case Last of
+        undefined -> 
+            {ok, <<"OK">>} = eredis:q(C, ["SET", Username, 1]),
+            1;
+        _ ->
+            LastInteger = erlang:list_to_integer(erlang:binary_to_list(Last)),
+            NewValue = LastInteger + 1,
+            {ok, <<"OK">>} = eredis:q(C, ["SET", Username, NewValue]),
+            NewValue
+    end.
+    
 %% Creates a presence stanza with custom attribute msg="account-created"
 %% when a user craetes an account with the server.
 create_new_packet({From, To, XML} = Packet) ->
@@ -58,8 +66,8 @@ create_new_packet({From, To, XML} = Packet) ->
     NewValue = update_user_message_id(Username),
     ?INFO_MSG("New message id for this user: ~p~n", [NewValue]),
     %% The below works:
-    Something = lists:merge(XML#xmlel.attrs, [{<<"ejab_seq">>, <<"1">>}]),
-    ?INFO_MSG("###################################### Atts modified: ~p~n", [Something]),
+    Something = lists:merge(XML#xmlel.attrs, [{<<"ejab_seq">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))}]),
+    ?INFO_MSG("###################################### Attrs modified: ~p~n", [Something]),
     Sequence = [{xmlcdata, <<"HAAAAAAAAAAAAAAAAAAAAAAAAAA">>}],
     NewXML = #xmlel{ name = XML#xmlel.name, attrs = Something, children = XML#xmlel.children },
     NewPacket = {From, To, NewXML},
