@@ -91,7 +91,14 @@ can_modify_presence(XML) ->
 
 
 can_modify_iq(XML) ->
-    true.
+    Children = XML#xmlel.children,
+    if 
+        Children == [] -> false;
+        Children#xmlel.name == <<"ping">> -> false;
+        Children#xmlel.name == <<"echo">> -> false;
+        Children#xmlel.name == <<"query">> -> false;
+        true -> true
+    end.
 
 
 can_modify_message(XML) ->
@@ -117,7 +124,7 @@ create_new_packet({From, To, XML} = Packet) ->
 message_id_hook({From, To, XML} = Packet) ->
     ?INFO_MSG("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++", []),
     ?INFO_MSG("Packet filtered: ~p~n", 
-        [fxml:get_tag_attr(<<"type">>, XML)]),
+        [XML]),
     case can_modify(Packet) of
         true ->
             NewPacket = create_new_packet(Packet),
