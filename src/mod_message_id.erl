@@ -35,7 +35,6 @@
 
 start(_Host, _Opt) -> 
     ejabberd_hooks:add(filter_packet, global, ?MODULE, message_id_hook, 1),
-    %%ejabberd_hooks:add(register_user, <<"xmpp.sprue.intamac.com">>, ?MODULE, register_announce_hook, 10),
     ?INFO_MSG("Registering message_id...", []),
     ok.
 
@@ -46,7 +45,6 @@ stop(_Host) ->
 
 update_user_message_id(Username) ->
     {ok, C} = eredis:start_link(),
-    ?INFO_MSG("Connection to Redis: ~p~n", [C]),
     {ok, Last} = eredis:q(C, ["GET", Username]),
     case Last of
         undefined -> 
@@ -61,29 +59,54 @@ update_user_message_id(Username) ->
 
 
 can_modify({From, To, XML} = Packet) ->
+    case addressed_to_platform(To) of
+        false -> false;
+        true ->
+            case XML#xmlel.name of
+                <<"presence">> -> can_modify_presence(XML);
+                <<"iq">> -> can_modify_iq(XML);
+                <<"message">> -> can_modify_message(XML);
+                <<"error">> -> can_modify_error(XML)
+            end
+    end.
+    
+
+addressed_to_platform(To) ->
     Pos = string:rstr(erlang:binary_to_list(To#jid.server), "component"),
-    ?INFO_MSG("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++, ~p~n, ~p~n", [Pos, To#jid.server]),
     if
         Pos >= 1 
             -> true;
         true -> false
     end.
 
+
+can_modify_presence(XML) -> 
+    true.
+
+
+can_modify_iq(XML) ->
+    true.
+
+
+can_modify_message(XML) ->
+    true.
+
+
+can_modify_error(XML) ->
+    true. 
+
     
-%% Creates a presence stanza with custom attribute msg="account-created"
-%% when a user craetes an account with the server.
+%% Creates a new packet with a user-specific increasing
+%% sequence ID. The sequence number is assigned to a top
+%% level attribute of the stanza called ejab_seq. 
 create_new_packet({From, To, XML} = Packet) ->
     Username = erlang:binary_to_list(From#jid.user),
     NewValue = update_user_message_id(Username),
-    ?INFO_MSG("New message id for this user: ~p~n", [NewValue]),
-    SequenceAttr = lists:merge(XML#xmlel.attrs, [{<<"ejab_seq">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))}]),
-    ?INFO_MSG("###################################### Attrs modified: ~p~n", [SequenceAttr]),
-    NewXML = #xmlel{ name = XML#xmlel.name, attrs = SequenceAttr, children = XML#xmlel.children },
+    AttrsWithSequence = lists:merge(XML#xmlel.attrs, [{<<"ejab_seq">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))}]),
+    NewXML = #xmlel{ name = XML#xmlel.name, attrs = AttrsWithSequence, children = XML#xmlel.children },
     NewPacket = {From, To, NewXML},
     NewPacket.
-    %%Sequence = #xmlel{ name = <<"ejab_seq">>, children = [{xmlcdata, <<"HAAAAAAAAAAAAAAAAAAAAAAAAAA">>}]},
-    %%NewPacket = Packet#xmlel{ children = Sequence },
-    %%NewPacket.
+
 
 message_id_hook({From, To, XML} = Packet) ->
     ?INFO_MSG("Packet filtered: ~p~n", 
