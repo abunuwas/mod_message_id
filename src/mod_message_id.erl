@@ -81,7 +81,13 @@ addressed_to_platform(To) ->
 
 
 can_modify_presence(XML) -> 
-    true.
+    case fxml:get_tag_attr(<<"type">>, XML) of
+        false -> true;
+        <<"available">> -> true;
+        <<"unavailable">> -> true;
+        <<"account-created">> -> true;
+        _ -> false
+    end.
 
 
 can_modify_iq(XML) ->
@@ -109,8 +115,9 @@ create_new_packet({From, To, XML} = Packet) ->
 
 
 message_id_hook({From, To, XML} = Packet) ->
+    ?INFO_MSG("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++", []),
     ?INFO_MSG("Packet filtered: ~p~n", 
-        [XML]),
+        [fxml:get_tag_attr(<<"type">>, XML)]),
     case can_modify(Packet) of
         true ->
             NewPacket = create_new_packet(Packet),
