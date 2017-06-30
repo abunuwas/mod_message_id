@@ -61,11 +61,12 @@ update_user_message_id(Username) ->
 
 
 can_modify({From, To, XML} = Packet) ->
-    Pos = string:rstr(erlang:binary_to_list(To), "component"),
+    Pos = string:rstr(erlang:binary_to_list(To#jid.server), "component"),
+    ?INFO_MSG("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++, ~p~n, ~p~n", [Pos, To#jid.server]),
     if
-        Pos  > 1 ->
-            true;
-    else -> false
+        Pos >= 1 
+            -> true;
+        true -> false
     end.
 
     
@@ -86,7 +87,7 @@ create_new_packet({From, To, XML} = Packet) ->
 
 message_id_hook({From, To, XML} = Packet) ->
     ?INFO_MSG("Packet filtered: ~p~n", 
-        [From#jid.user]),
+        [XML]),
     case can_modify(Packet) of
         true ->
             NewPacket = create_new_packet(Packet),
