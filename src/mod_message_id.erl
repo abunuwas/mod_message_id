@@ -91,12 +91,21 @@ can_modify_presence(XML) ->
 
 
 can_modify_iq(XML) ->
+    case fxml:get_tag_attr(<<"type">>, XML) of
+        <<"error">> -> can_modify_error(XML);
+        _ -> inspect_iq_children(XML)
+    end.
+
+
+inspect_iq_children(XML) ->
     Children = XML#xmlel.children,
-    if 
-        Children == [] -> false;
-        Children#xmlel.name == <<"ping">> -> false;
-        Children#xmlel.name == <<"echo">> -> false;
-        Children#xmlel.name == <<"query">> -> false;
+    case Children of
+        [] -> false
+    end,
+    case Children#xmlel.name of
+        <<"ping">> -> fase;
+        <<"echo">> -> false;
+        <<"query">> -> false;
         true -> true
     end.
 
@@ -105,8 +114,11 @@ can_modify_message(XML) ->
     true.
 
 
-can_modify_error(XML) ->
-    true. 
+can_modify_error({ Name, Attrs, Children } = XML) ->
+    case Name of 
+        <<"iq">> -> Children#xmlel.name == <<"intamacstream">>, fxml:get_tag_attr(<<"type">>, Children) == <<"start">>;
+        _ -> false
+    end.
 
     
 %% Creates a new packet with a user-specific increasing
