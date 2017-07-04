@@ -23,25 +23,28 @@
 
 %% Required by ?INFO_MSG macros
 -include("logger.hrl").
-%%-include("fxml.hrl").
--include("jlib.hrl").
+-include("ejabberd.hrl").
+-include("fxml.hrl").
+-include("xmpp_codec.hrl").
+-include("jid.hrl").
 
 %% gen_mod API callbacks
--export([start/2, stop/1, message_id_hook/1, offline_message_id_hook/3]).
+-export([start/2, stop/1, message_id_hook/1, offline_message_id_hook/4]).
 
 -ifndef(LAGER).
 -define(LAGER, 1).
 -endif.
 
+
 start(_Host, _Opt) -> 
     ejabberd_hooks:add(filter_packet, global, ?MODULE, message_id_hook, 1),
-    ejabberd_hooks:add(sm_remove_connection_hook, <<"use-xmpp-01">>, ?MODULE, offline_message_id_hook, 1),
+    ejabberd_hooks:add(unset_presence_hook, _Host, ?MODULE, offline_message_id_hook, 1),
     ?INFO_MSG("Registering message_id...", []),
     ok.
 
 stop(_Host) -> 
     ejabberd_hooks:delete(filter_packet, global, ?MODULE, message_id_hook, 1),
-    ejabberd_hooks:delete(sm_remove_connection_hook, <<"use-xmpp-01">>, ?MODULE, offline_message_id_hook, 1),
+    ejabberd_hooks:delete(unset_presence_hook, _Host, ?MODULE, offline_message_id_hook, 1),
     ?INFO_MSG("Deregistering message_id_hook...", []),
     ok.
 
@@ -150,10 +153,21 @@ message_id_hook({From, To, XML} = Packet) ->
     end.
 
 
-offline_message_id_hook(SID, JID, Info) ->
+offline_message_id_hook(User, Server, Resource, Status) ->
     ?INFO_MSG("*****************************************************************************************************************", []),
     ?INFO_MSG("Offline packet filtered: ~p~n~p~n",
-        [JID, Info]),
-    {SID, JID, Info}.
-
-
+        [User, Status]),
+    From = jid:make(User, Server, Resource),
+    To = jid:make(<<"user">>, <<"component.use-xmpp-01">>, <<"">>),
+    %OfflinePacket = #xmlel{name = <<"presence">>,
+    %                       attrs = [{<<"type">>,  <<"unavailable">>}, {<<"AAAAAAAAAAAAAAAAAAAAAAA">>, <<"HHHHHHHHHHHHHHHHHHHHHH">>}]},
+    %From = #jid{user = User, server = Server, resource = Resource},
+    %To = #jid{user = <<"user">>, server = <<"component.use-xmpp-01">>, resource = <<"">>},
+    %OfflinePacket = #presence{type = unavailable,
+    %                          to = To,
+    %                          from = From,
+    %                          id = 111111111111111  },
+    OfflinePacket = {xmlel, <<"presence">>, [{<<"type">>, <<"unavailable">>}, {<<"AAAAAAA">>, <<"HHHHHHHHHH">>}], [] },
+    ?INFO_MSG("Built offline packet: ~p~n", [OfflinePacket]),
+    ejabberd_router:route(From, To, OfflinePacket),
+    {User, Server, Resource, Status}.
