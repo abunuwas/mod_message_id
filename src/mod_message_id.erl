@@ -48,6 +48,7 @@ stop(_Host) ->
     ?INFO_MSG("Deregistering message_id_hook...", []),
     ok.
 
+
 update_user_message_id(Username) ->
     {ok, C} = eredis:start_link(),
     {ok, Last} = eredis:q(C, ["GET", Username]),
@@ -57,9 +58,16 @@ update_user_message_id(Username) ->
             1;
         _ ->
             LastInteger = erlang:list_to_integer(erlang:binary_to_list(Last)),
-            NewValue = LastInteger + 1,
-            {ok, <<"OK">>} = eredis:q(C, ["SET", Username, NewValue]),
-            NewValue
+            if LastInteger 
+                >= 1000 ->
+                    NewValue = 1,
+                    {ok, <<"OK">>} = eredis:q(C, ["SET", Username, NewValue]),
+                    NewValue;
+                true ->
+                    NewValue = LastInteger + 1,
+                    {ok, <<"OK">>} = eredis:q(C, ["SET", Username, NewValue]),
+                    NewValue
+            end
     end.
 
 
