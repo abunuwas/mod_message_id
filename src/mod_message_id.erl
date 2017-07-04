@@ -85,7 +85,6 @@ can_modify({From, To, XML} = Packet) ->
     
 
 addressed_to_platform(To) ->
-    ?INFO_MSG(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> To: ~p~n", [To]),
     Pos = string:rstr(erlang:binary_to_list(To#jid.server), "component"),
     if
         Pos >= 1 
@@ -134,7 +133,7 @@ can_modify_error({ Name, Attrs, Children } = XML) ->
         _ -> false
     end.
 
-    
+
 %% Creates a new packet with a user-specific increasing
 %% sequence ID. The sequence number is assigned to a top
 %% level attribute of the stanza called ejab_seq. 
@@ -148,13 +147,8 @@ create_new_packet({From, To, XML} = Packet) ->
 
 
 message_id_hook({From, To, XML} = Packet) ->
-    ?INFO_MSG("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++", []),
-    ?INFO_MSG("Packet filtered: ~p~n", 
-        [XML]),
     case can_modify(Packet) of
         true ->
-            ?INFO_MSG("-------------------------------------------------------------------------------------------------------We are going to modify: ~p~n", 
-                [XML]),
             NewPacket = create_new_packet(Packet),
             NewPacket;
         false -> Packet
@@ -162,11 +156,9 @@ message_id_hook({From, To, XML} = Packet) ->
 
 
 offline_message_id_hook(User, Server, Resource, Status) ->
-    ?INFO_MSG("*****************************************************************************************************************", []),
     From = jid:make(User, Server, Resource),
     To = jid:make(<<"user">>, <<"component.use-xmpp-01">>, <<"">>),
     NewValue = update_user_message_id(User),
     OfflinePacket = {xmlel, <<"presence">>, [{<<"type">>, <<"unavailable">>}, {<<"ejab_seq">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))}], [] },
-    ?INFO_MSG("Built offline packet: ~p~n", [OfflinePacket]),
     ejabberd_router:route(From, To, OfflinePacket),
     {User, Server, Resource, Status}.
