@@ -155,19 +155,10 @@ message_id_hook({From, To, XML} = Packet) ->
 
 offline_message_id_hook(User, Server, Resource, Status) ->
     ?INFO_MSG("*****************************************************************************************************************", []),
-    ?INFO_MSG("Offline packet filtered: ~p~n~p~n",
-        [User, Status]),
     From = jid:make(User, Server, Resource),
     To = jid:make(<<"user">>, <<"component.use-xmpp-01">>, <<"">>),
-    %OfflinePacket = #xmlel{name = <<"presence">>,
-    %                       attrs = [{<<"type">>,  <<"unavailable">>}, {<<"AAAAAAAAAAAAAAAAAAAAAAA">>, <<"HHHHHHHHHHHHHHHHHHHHHH">>}]},
-    %From = #jid{user = User, server = Server, resource = Resource},
-    %To = #jid{user = <<"user">>, server = <<"component.use-xmpp-01">>, resource = <<"">>},
-    %OfflinePacket = #presence{type = unavailable,
-    %                          to = To,
-    %                          from = From,
-    %                          id = 111111111111111  },
-    OfflinePacket = {xmlel, <<"presence">>, [{<<"type">>, <<"unavailable">>}, {<<"AAAAAAA">>, <<"HHHHHHHHHH">>}], [] },
+    NewValue = update_user_message_id(User),
+    OfflinePacket = {xmlel, <<"presence">>, [{<<"type">>, <<"unavailable">>}, {<<"ejab_seq">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))}], [] },
     ?INFO_MSG("Built offline packet: ~p~n", [OfflinePacket]),
     ejabberd_router:route(From, To, OfflinePacket),
     {User, Server, Resource, Status}.
