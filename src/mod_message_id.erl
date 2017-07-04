@@ -27,7 +27,7 @@
 -include("jlib.hrl").
 
 %% gen_mod API callbacks
--export([start/2, stop/1, message_id_hook/1]).
+-export([start/2, stop/1, message_id_hook/1, offline_message_id_hook/3]).
 
 -ifndef(LAGER).
 -define(LAGER, 1).
@@ -35,11 +35,13 @@
 
 start(_Host, _Opt) -> 
     ejabberd_hooks:add(filter_packet, global, ?MODULE, message_id_hook, 1),
+    ejabberd_hooks:add(sm_remove_connection_hook, <<"use-xmpp-01">>, ?MODULE, offline_message_id_hook, 1),
     ?INFO_MSG("Registering message_id...", []),
     ok.
 
 stop(_Host) -> 
     ejabberd_hooks:delete(filter_packet, global, ?MODULE, message_id_hook, 1),
+    ejabberd_hooks:delete(sm_remove_connection_hook, <<"use-xmpp-01">>, ?MODULE, offline_message_id_hook, 1),
     ?INFO_MSG("Deregistering message_id_hook...", []),
     ok.
 
@@ -72,6 +74,7 @@ can_modify({From, To, XML} = Packet) ->
     
 
 addressed_to_platform(To) ->
+    ?INFO_MSG(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> To: ~p~n", [To]),
     Pos = string:rstr(erlang:binary_to_list(To#jid.server), "component"),
     if
         Pos >= 1 
@@ -84,7 +87,7 @@ can_modify_presence(XML) ->
     case fxml:get_tag_attr(<<"type">>, XML) of
         false -> true;
         <<"available">> -> true;
-        <<"unavailable">> -> true;
+        <<"unavailable">> -> false;
         <<"account-created">> -> true;
         _ -> false
     end.
@@ -116,7 +119,7 @@ can_modify_message(XML) ->
 
 can_modify_error({ Name, Attrs, Children } = XML) ->
     case Name of 
-        <<"iq">> -> Children#xmlel.name == <<"intamacstream">>, fxml:get_tag_attr(<<"type">>, Children) == <<"start">>;
+        <<"iq">> -> Children#xmlel.name == <<"intamacstream">> andalso fxml:get_tag_attr(<<"type">>, Children) == <<"start">>;
         _ -> false
     end.
 
@@ -139,9 +142,18 @@ message_id_hook({From, To, XML} = Packet) ->
         [XML]),
     case can_modify(Packet) of
         true ->
+            ?INFO_MSG("-------------------------------------------------------------------------------------------------------We are going to modify: ~p~n", 
+                [XML]),
             NewPacket = create_new_packet(Packet),
             NewPacket;
         false -> Packet
     end.
+
+
+offline_message_id_hook(SID, JID, Info) ->
+    ?INFO_MSG("*****************************************************************************************************************", []),
+    ?INFO_MSG("Offline packet filtered: ~p~n~p~n",
+        [JID, Info]),
+    {SID, JID, Info}.
 
 
