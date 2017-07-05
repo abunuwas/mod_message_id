@@ -1,17 +1,16 @@
 %%%----------------------------------------------------------------------
-%%% File    : mod_register_announce.erl
+%%% File    : mod_message_id.erl
 %%% Author  : Jose Haro Peralta <jharoperalta@intamac.com>
-%%% Purpose : Announce user registration to platform. 
+%%% Purpose : Add sequencing and timestamp to user-specific messages. 
 %%% Created : 13 April 2017 by Jose Haro Peralta <jharoperalta@intamac.com>
 %%%
 %%% ----------------------------------------------------------------------
 %%% Description: 
-%%% This module implements a hook on the event register_user
-%%% raised by Ejabberd whenever a new user creates an account
-%%% with the server. This event is raised immediately after 
-%%% registration. The custom hook creates a presence stanza
-%%% on behalf of the registered user to announce the event
-%%% to the platform. 
+%%% This module implements a hook that filters out packets leaving 
+%%% the server, and adds a sequencing number as well as a timestamp
+%%% if they are being addressed to the XMPP Component. It also creates
+%%% a custom offline stanza with the same attributes so that the platform
+%%% can be made aware of the order in which they were generated. 
 %%% ----------------------------------------------------------------------
 %%%
 %%% Copyright (C) Intamac Systems Ltd.
@@ -36,12 +35,14 @@
 -endif.
 
 
+%% Add custom callbacks for filter_packet and unet_prsence_hook events.
 start(_Host, _Opt) -> 
     ejabberd_hooks:add(filter_packet, global, ?MODULE, message_id_hook, 1),
     ejabberd_hooks:add(unset_presence_hook, _Host, ?MODULE, offline_message_id_hook, 1),
     ?INFO_MSG("Registering message_id...", []),
     ok.
 
+%% Remove custom callbacks. 
 stop(_Host) -> 
     ejabberd_hooks:delete(filter_packet, global, ?MODULE, message_id_hook, 1),
     ejabberd_hooks:delete(unset_presence_hook, _Host, ?MODULE, offline_message_id_hook, 1),
@@ -49,6 +50,10 @@ stop(_Host) ->
     ok.
 
 
+%% Returns the next sequence number for a given user.
+%% At the moment this uses only Redis to manage this
+%% information, however this functionality can be
+%% decoupled to use a differen storage system if so desired.
 update_user_message_id(Username) ->
     {ok, C} = eredis:start_link(),
     {ok, Last} = eredis:q(C, ["GET", Username]),
@@ -71,6 +76,7 @@ update_user_message_id(Username) ->
     end.
 
 
+%% Checks whether a packet should be modified. 
 can_modify({From, To, XML} = Packet) ->
     case addressed_to_platform(To) of
         false -> false;
@@ -84,6 +90,8 @@ can_modify({From, To, XML} = Packet) ->
     end.
     
 
+%% Only stanzas addressed to the platform XMPP Component
+%% should be modified. 
 addressed_to_platform(To) ->
     Pos = string:rstr(erlang:binary_to_list(To#jid.server), "component"),
     if
@@ -93,59 +101,96 @@ addressed_to_platform(To) ->
     end.
 
 
+%% Determines whether presence stanzas can be modified. 
 can_modify_presence(XML) -> 
     case fxml:get_tag_attr(<<"type">>, XML) of
         false -> true;
-        <<"available">> -> true;
-        <<"unavailable">> -> false;
-        <<"account-created">> -> true;
+        {value, <<"available">>} -> true;
+        {value, <<"unavailable">>} -> false;
+        {value, <<"account-created">>} -> true;
         _ -> false
     end.
 
 
+%% Determines whether <iq> stanzas can be modified. 
 can_modify_iq(XML) ->
+    ?INFO_MSG(" *************************************************************************, ~p~n", [XML]),
     case fxml:get_tag_attr(<<"type">>, XML) of
-        <<"error">> -> can_modify_error(XML);
+        {_,<<"error">>} -> can_modify_error(XML);
         _ -> inspect_iq_children(XML)
     end.
 
 
+%% Determines whether <iq> stanzas can
+%% be modified by inspecting their children. 
 inspect_iq_children(XML) ->
     Children = XML#xmlel.children,
     case Children of
-        [] -> false
-    end,
-    case Children#xmlel.name of
-        <<"ping">> -> fase;
-        <<"echo">> -> false;
-        <<"query">> -> false;
-        true -> true
+        [] -> false;
+        _ ->
+            FirstChild = lists:nth(1, Children),
+            case FirstChild#xmlel.name of
+                <<"ping">> -> false;
+                <<"echo">> -> false;
+                <<"query">> -> false;
+                _ -> true
+            end
     end.
 
 
+%% All <message> stanzas can be modified.
 can_modify_message(XML) ->
     true.
 
 
-can_modify_error({ Name, Attrs, Children } = XML) ->
-    case Name of 
-        <<"iq">> -> Children#xmlel.name == <<"intamacstream">> andalso fxml:get_tag_attr(<<"type">>, Children) == <<"start">>;
-        _ -> false
+%% Determines whether an error stanza can be modifed.
+%% Only intamacstream stanzas should be returned to 
+%% the platform with a sequence number, since in case
+%% of error they still need to be marke as complete in 
+%% the database. 
+can_modify_error(XML) ->
+    case XML#xmlel.name of 
+        <<"iq">> -> 
+            Children = XML#xmlel.children,
+            case Children of
+                [] -> false;
+                _ ->
+                    FirstChild = lists:nth(1, Children),
+                    case FirstChild#xmlel.name of
+                        <<"intamacstream">> -> true;
+                        _ -> false
+                    end
+            end
     end.
+
+
+%% Returns a timestamp in unix time down to the second.
+%% now/0 is not warp safe, however in Erlang OPT/17 there 
+%% no other choices. If an upgrade is made to Erlang OPT/18,
+%% then the new API erlang:timestamp/0 should be preferred.  
+get_timestamp() ->
+    {MegaSeconds, Seconds, _} = erlang:now(),
+    Timestamp = MegaSeconds * 1000000 + Seconds,
+    Timestamp.
 
 
 %% Creates a new packet with a user-specific increasing
 %% sequence ID. The sequence number is assigned to a top
-%% level attribute of the stanza called ejab_seq. 
+%% level attribute of the stanza called ejab_sequence. It
+%% also includes a timestamp under custom attribute ejab_timestamp. 
 create_new_packet({From, To, XML} = Packet) ->
     Username = erlang:binary_to_list(From#jid.user),
     NewValue = update_user_message_id(Username),
-    AttrsWithSequence = lists:merge(XML#xmlel.attrs, [{<<"ejab_seq">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))}]),
+    AttrsWithSequence = lists:merge(XML#xmlel.attrs, [{<<"ejab_sequence">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))},
+                                                      {<<"ejab_timestamp">>, erlang:list_to_binary(erlang:integer_to_list(get_timestamp()))}]),
     NewXML = #xmlel{ name = XML#xmlel.name, attrs = AttrsWithSequence, children = XML#xmlel.children },
     NewPacket = {From, To, NewXML},
     NewPacket.
 
 
+%% Checks whether packets should be modified. If so,
+%% it returns the modified packet, otherwise returns
+%% the same packet. 
 message_id_hook({From, To, XML} = Packet) ->
     case can_modify(Packet) of
         true ->
@@ -155,10 +200,16 @@ message_id_hook({From, To, XML} = Packet) ->
     end.
 
 
+%% Creates an offline message on behalf of the user disconnecting,
+%% and sends it to the platform with the expected attributes: 
+%% ejab_sequence and ejab_timestamp.
 offline_message_id_hook(User, Server, Resource, Status) ->
     From = jid:make(User, Server, Resource),
     To = jid:make(<<"user">>, <<"component.use-xmpp-01">>, <<"">>),
     NewValue = update_user_message_id(User),
-    OfflinePacket = {xmlel, <<"presence">>, [{<<"type">>, <<"unavailable">>}, {<<"ejab_seq">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))}], [] },
+    OfflinePacket = {xmlel, <<"presence">>, [{<<"type">>, <<"unavailable">>}, 
+                                             {<<"ejab_sequence">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))},
+                                             {<<"ejab_timestamp">>, erlang:list_to_binary(erlang:integer_to_list(get_timestamp()))}], 
+                                            [] },
     ejabberd_router:route(From, To, OfflinePacket),
     {User, Server, Resource, Status}.
