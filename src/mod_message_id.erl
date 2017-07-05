@@ -114,7 +114,6 @@ can_modify_presence(XML) ->
 
 %% Determines whether <iq> stanzas can be modified. 
 can_modify_iq(XML) ->
-    ?INFO_MSG(" *************************************************************************, ~p~n", [XML]),
     case fxml:get_tag_attr(<<"type">>, XML) of
         {_,<<"error">>} -> can_modify_error(XML);
         _ -> inspect_iq_children(XML)
