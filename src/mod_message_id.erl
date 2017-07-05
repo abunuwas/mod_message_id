@@ -53,19 +53,19 @@ stop(_Host) ->
 %% Returns the next sequence number for a given user.
 %% At the moment this uses only Redis to manage this
 %% information, however this functionality can be
-%% decoupled to use a differen storage system if so desired.
+%% decoupled to use a different storage system if so desired.
 update_user_message_id(Username) ->
     {ok, C} = eredis:start_link(),
     {ok, Last} = eredis:q(C, ["GET", Username]),
     case Last of
         undefined -> 
-            {ok, <<"OK">>} = eredis:q(C, ["SET", Username, 1]),
-            1;
+            {ok, <<"OK">>} = eredis:q(C, ["SET", Username, 0]),
+            0;
         _ ->
             LastInteger = erlang:list_to_integer(erlang:binary_to_list(Last)),
             if LastInteger 
                 >= 1000 ->
-                    NewValue = 1,
+                    NewValue = 0,
                     {ok, <<"OK">>} = eredis:q(C, ["SET", Username, NewValue]),
                     NewValue;
                 true ->
@@ -85,7 +85,7 @@ can_modify({From, To, XML} = Packet) ->
                 <<"presence">> -> can_modify_presence(XML);
                 <<"iq">> -> can_modify_iq(XML);
                 <<"message">> -> can_modify_message(XML);
-                <<"error">> -> can_modify_error(XML)
+                _ -> false
             end
     end.
     
@@ -105,9 +105,9 @@ addressed_to_platform(To) ->
 can_modify_presence(XML) -> 
     case fxml:get_tag_attr(<<"type">>, XML) of
         false -> true;
-        {value, <<"available">>} -> true;
-        {value, <<"unavailable">>} -> false;
-        {value, <<"account-created">>} -> true;
+        {_, <<"available">>} -> true;
+        {_, <<"unavailable">>} -> false;
+        {_, <<"account-created">>} -> true;
         _ -> false
     end.
 
@@ -142,10 +142,10 @@ can_modify_message(XML) ->
     true.
 
 
-%% Determines whether an error stanza can be modifed.
+%% Determines whether an error stanza can be modified.
 %% Only intamacstream stanzas should be returned to 
 %% the platform with a sequence number, since in case
-%% of error they still need to be marke as complete in 
+%% of error they still need to be marked as complete in 
 %% the database. 
 can_modify_error(XML) ->
     case XML#xmlel.name of 
@@ -164,7 +164,7 @@ can_modify_error(XML) ->
 
 
 %% Returns a timestamp in unix time down to the second.
-%% now/0 is not warp safe, however in Erlang OPT/17 there 
+%% now/0 is not warp safe, however in Erlang OPT/17 there are
 %% no other choices. If an upgrade is made to Erlang OPT/18,
 %% then the new API erlang:timestamp/0 should be preferred.  
 get_timestamp() ->
