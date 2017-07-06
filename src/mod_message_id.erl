@@ -28,7 +28,7 @@
 -include("jid.hrl").
 
 %% gen_mod API callbacks
--export([start/2, stop/1, message_id_hook/1, offline_message_id_hook/4]).
+-export([start/2, stop/1, message_id_hook/1, offline_message_id_hook/4, update_user_message_id/1]).
 
 -ifndef(LAGER).
 -define(LAGER, 1).
@@ -55,7 +55,8 @@ stop(_Host) ->
 %% information, however this functionality can be
 %% decoupled to use a different storage system if so desired.
 update_user_message_id(Username) ->
-    {ok, C} = eredis:start_link(),
+    {ok, C} = eredis:start_link("10.10.2.138", 6379, 0),
+    %{ok, C} = eredis:start_link(),
     {ok, Last} = eredis:q(C, ["GET", Username]),
     case Last of
         undefined -> 
