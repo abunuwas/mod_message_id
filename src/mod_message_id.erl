@@ -55,8 +55,7 @@ stop(_Host) ->
 %% information, however this functionality can be
 %% decoupled to use a different storage system if so desired.
 update_user_message_id(Username) ->
-    {ok, C} = eredis:start_link("10.10.2.138", 6379, 0),
-    %{ok, C} = eredis:start_link(),
+    {ok, C} = eredis:start_link("stgejabberdswann.bndouw.ng.0001.euw1.cache.amazonaws.com", 6379, 0),
     {ok, Last} = eredis:q(C, ["GET", Username]),
     case Last of
         undefined -> 
@@ -194,6 +193,8 @@ create_new_packet({From, To, XML} = Packet) ->
 message_id_hook({From, To, XML} = Packet) ->
     case can_modify(Packet) of
         true ->
+            ?INFO_MSG("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++", []),
+            ?INFO_MSG("The following packet will be modified: ~p~n", [Packet]),
             NewPacket = create_new_packet(Packet),
             NewPacket;
         false -> Packet
@@ -204,6 +205,7 @@ message_id_hook({From, To, XML} = Packet) ->
 %% and sends it to the platform with the expected attributes: 
 %% ejab_sequence and ejab_timestamp.
 offline_message_id_hook(User, Server, Resource, Status) ->
+    ?INFO_MSG("***************************************************************************************************************************", []),
     From = jid:make(User, Server, Resource),
     To = jid:make(<<"user">>, <<"component.use-xmpp-01">>, <<"">>),
     NewValue = update_user_message_id(User),
@@ -211,5 +213,6 @@ offline_message_id_hook(User, Server, Resource, Status) ->
                                              {<<"ejab_sequence">>, erlang:list_to_binary(erlang:integer_to_list(NewValue))},
                                              {<<"ejab_timestamp">>, erlang:list_to_binary(erlang:integer_to_list(get_timestamp()))}], 
                                             [] },
+    ?INFO_MSG("The following offline packet was created: ~p~n", [OfflinePacket]),
     ejabberd_router:route(From, To, OfflinePacket),
     {User, Server, Resource, Status}.
