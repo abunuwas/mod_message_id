@@ -39,6 +39,7 @@
 start(_Host, _Opt) -> 
     ejabberd_hooks:add(filter_packet, global, ?MODULE, message_id_hook, 1),
     ejabberd_hooks:add(unset_presence_hook, _Host, ?MODULE, offline_message_id_hook, 1),
+    eredis_pool:start(),
     ?INFO_MSG("Registering message_id...", []),
     ok.
 
@@ -46,6 +47,7 @@ start(_Host, _Opt) ->
 stop(_Host) -> 
     ejabberd_hooks:delete(filter_packet, global, ?MODULE, message_id_hook, 1),
     ejabberd_hooks:delete(unset_presence_hook, _Host, ?MODULE, offline_message_id_hook, 1),
+    %eredis_pool:stop(),
     ?INFO_MSG("Deregistering message_id_hook...", []),
     ok.
 
@@ -55,22 +57,22 @@ stop(_Host) ->
 %% information, however this functionality can be
 %% decoupled to use a different storage system if so desired.
 update_user_message_id(Username) ->
-    {ok, C} = eredis:start_link("stgejabberdswann.bndouw.ng.0001.euw1.cache.amazonaws.com", 6379, 0),
-    {ok, Last} = eredis:q(C, ["GET", Username]),
+    %%{ok, C} = eredis:start_link("stgejabberdswann.bndouw.ng.0001.euw1.cache.amazonaws.com", 6379, 0),
+    {ok, Last} = eredis_pool:q(pool1, ["GET", Username]),
     case Last of
         undefined -> 
-            {ok, <<"OK">>} = eredis:q(C, ["SET", Username, 0]),
+            {ok, <<"OK">>} = eredis_pool:q(pool1, ["SET", Username, 0]),
             0;
         _ ->
             LastInteger = erlang:list_to_integer(erlang:binary_to_list(Last)),
             if LastInteger 
                 >= 1000 ->
                     NewValue = 0,
-                    {ok, <<"OK">>} = eredis:q(C, ["SET", Username, NewValue]),
+                    {ok, <<"OK">>} = eredis_pool:q(pool1, ["SET", Username, NewValue]),
                     NewValue;
                 true ->
                     NewValue = LastInteger + 1,
-                    {ok, <<"OK">>} = eredis:q(C, ["SET", Username, NewValue]),
+                    {ok, <<"OK">>} = eredis_pool:q(pool1, ["SET", Username, NewValue]),
                     NewValue
             end
     end.
